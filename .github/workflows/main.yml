@@ -28,3 +28,9 @@ jobs:
           git add screenshots/
           git commit -m "Add screenshots" || exit 0
           git push
+          
+      - name: Upload Screenshots as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-screenshots # 给产物起个名字
+          path: screenshots/     # 告诉 GitHub 备份这个文件夹
