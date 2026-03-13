@@ -1,0 +1,24 @@
+name: Get Screenshots
+on: workflow_dispatch # 允许你手动点击按钮开始
+
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允许机器人把图片传回你的仓库
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install yt-dlp
+      - name: Run Script
+        run: python capture.py
+      - name: Save to Repo
+        run: |
+          git config --local user.email "javainstalling@gmail.com"
+          git config --local user.name "microHX"
+          git add screenshots/
+          git commit -m "Add screenshots" || exit 0
+          git push
