@@ -14,7 +14,13 @@ jobs:
           sudo apt-get install -y ffmpeg
           pip install yt-dlp
       - name: Run Script
-        run: python capture.py
+        env: 
+          MY_COOKIES: ${{ secrets.YT_COOKIES }} # 读取 Secret
+        run: |
+          echo "$MY_COOKIES" > cookies.txt # 还原为文件
+          python capture.py
+          rm cookies.txt # 运行完删除，保护隐私
+          
       - name: Save to Repo
         run: |
           git config --local user.email "javainstalling@gmail.com"
