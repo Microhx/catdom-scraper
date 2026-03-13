@@ -2,8 +2,7 @@ import os
 import subprocess
 
 def get_video_data(url):
-    # 使用 --print 替代老的 --get-duration，更稳定
-    # 删除了 -f b，让系统自动选择
+    print(f"DEBUG: Extracting data for URL: {url}")
     cmd = [
         'yt-dlp', 
         '--cookies', 'cookies.txt',
@@ -12,13 +11,13 @@ def get_video_data(url):
         '--print', '%(id)s',
         url
     ]
+    # 使用 check=True，如果失败会直接抛出异常
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     lines = result.stdout.strip().split('\n')
     
     duration_str = lines[0]
     v_id = lines[1]
     
-    # 转换时长为秒 (处理 05, 01:20, 01:02:03 等各种情况)
     parts = list(map(int, duration_str.split(':')))
     if len(parts) == 1: total_sec = parts[0]
     elif len(parts) == 2: total_sec = parts[0] * 60 + parts[1]
@@ -28,50 +27,60 @@ def get_video_data(url):
 
 def take_screenshot(url, timestamp, output_name):
     try:
-        # 获取流地址，不限制格式，只要视频
-        get_url_cmd = ['yt-dlp', '--cookies', 'cookies.txt', '-g', url]
-        stream_url = subprocess.check_output(get_url_cmd, text=True).strip()
-        
-        # 截取第一条视频流
-        first_url = stream_url.split('\n')[0]
+        # 只获取视频流地址
+        get_url_cmd = ['yt-dlp', '--cookies', 'cookies.txt', '-g', '-f', 'bestvideo', url]
+        stream_url = subprocess.check_output(get_url_cmd, text=True).strip().split('\n')[0]
         
         # ffmpeg 截图
         cmd = [
             'ffmpeg', '-ss', str(timestamp), 
-            '-i', first_url, 
+            '-i', stream_url, 
             '-vframes', '1', '-q:v', '2', 
             output_name, '-y'
         ]
         subprocess.run(cmd, capture_output=True)
-        print(f"Successfully saved: {output_name}")
+        print(f"   - Saved: {output_name}")
     except Exception as e:
-        print(f"Screenshot failed for {output_name}: {e}")
+        print(f"   - Screenshot Error: {e}")
 
 def main():
     if not os.path.exists('screenshots'): os.makedirs('screenshots')
     
+    if not os.path.exists('videos.txt'):
+        print("Error: videos.txt not found!")
+        return
+
     with open('videos.txt', 'r') as f:
         for line in f:
             line = line.strip()
             if not line: continue
             
-            # 核心改进：自动分割编号和网址
-            # 如果一行是 "1 https://..."，会提取网址部分
             parts = line.split()
-            level_num = parts[0] if len(parts) > 1 else "unknown"
-            url = parts[-1] 
+            url = ""
+            level_num = "unknown"
             
+            # 智能识别 URL 和编号
+            for p in parts:
+                if p.startswith("http"):
+                    url = p
+                else:
+                    level_num = p
+            
+            if not url:
+                print(f"Skipping line: {line} (No URL found)")
+                continue
+
             try:
+                print(f"--- Processing Level {level_num} ---")
                 v_id, total_sec = get_video_data(url)
-                print(f"Processing Level {level_num} (ID: {v_id}, Duration: {total_sec}s)")
                 
-                # 设定截图时间点
+                # 截图逻辑
                 take_screenshot(url, 2, f"screenshots/level_{level_num}_1.jpg")
                 take_screenshot(url, total_sec // 2, f"screenshots/level_{level_num}_2.jpg")
                 take_screenshot(url, int(total_sec * 0.8), f"screenshots/level_{level_num}_3.jpg")
                 take_screenshot(url, max(0, total_sec - 2), f"screenshots/level_{level_num}_4.jpg")
             except Exception as e:
-                print(f"Failed to process line '{line}': {e}")
+                print(f"Critical error on line '{line}': {e}")
 
 if __name__ == "__main__":
     main()
