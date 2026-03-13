@@ -1,20 +1,24 @@
 import os
 import subprocess
+import sys
 
 def get_video_data(url):
-    print(f"DEBUG: Extracting data for URL: {url}")
+    print(f"\n[1/3] Fetching metadata for: {url}")
+    # 强制获取时长和ID
     cmd = [
         'yt-dlp', 
         '--cookies', 'cookies.txt',
-        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:player_client=ios', # 换成 ios 客户端试试
         '--print', '%(duration)s', 
         '--print', '%(id)s',
         url
     ]
-    # 使用 check=True，如果失败会直接抛出异常
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    lines = result.stdout.strip().split('\n')
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"yt-dlp metadata error: {result.stderr}")
+        return None, None
     
+    lines = result.stdout.strip().split('\n')
     duration_str = lines[0]
     v_id = lines[1]
     
@@ -27,21 +31,40 @@ def get_video_data(url):
 
 def take_screenshot(url, timestamp, output_name):
     try:
-        # 只获取视频流地址
-        get_url_cmd = ['yt-dlp', '--cookies', 'cookies.txt', '-g', '-f', 'bestvideo', url]
-        stream_url = subprocess.check_output(get_url_cmd, text=True).strip().split('\n')[0]
+        # 获取流地址，这次我们不限制 bestvideo，让它自动选
+        print(f"   [2/3] Getting stream URL for {output_name}...")
+        get_url_cmd = ['yt-dlp', '--cookies', 'cookies.txt', '-g', url]
+        res = subprocess.run(get_url_cmd, capture_output=True, text=True)
+        
+        if res.returncode != 0:
+            print(f"   Error getting stream URL: {res.stderr}")
+            return
+            
+        stream_url = res.stdout.strip().split('\n')[0]
         
         # ffmpeg 截图
+        print(f"   [3/3] Running ffmpeg at {timestamp}s...")
+        # 增加 -timeout 和 -reconnect 参数，防止网络波动导致截图失败
         cmd = [
-            'ffmpeg', '-ss', str(timestamp), 
+            'ffmpeg', 
+            '-ss', str(timestamp), 
+            '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
             '-i', stream_url, 
-            '-vframes', '1', '-q:v', '2', 
-            output_name, '-y'
+            '-vframes', '1', 
+            '-q:v', '2', 
+            output_name, 
+            '-y'
         ]
-        subprocess.run(cmd, capture_output=True)
-        print(f"   - Saved: {output_name}")
+        # 我们不捕获错误，让它直接输出到控制台日志
+        subprocess.run(cmd)
+        
+        if os.path.exists(output_name):
+            print(f"   SUCCESS: Saved {output_name} (Size: {os.path.getsize(output_name)} bytes)")
+        else:
+            print(f"   FAILED: ffmpeg finished but {output_name} not found.")
+            
     except Exception as e:
-        print(f"   - Screenshot Error: {e}")
+        print(f"   CRITICAL ERROR: {e}")
 
 def main():
     if not os.path.exists('screenshots'): os.makedirs('screenshots')
@@ -51,36 +74,22 @@ def main():
         return
 
     with open('videos.txt', 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            
-            parts = line.split()
-            url = ""
-            level_num = "unknown"
-            
-            # 智能识别 URL 和编号
-            for p in parts:
-                if p.startswith("http"):
-                    url = p
-                else:
-                    level_num = p
-            
-            if not url:
-                print(f"Skipping line: {line} (No URL found)")
-                continue
+        urls_data = [line.strip() for line in f if line.strip()]
 
-            try:
-                print(f"--- Processing Level {level_num} ---")
-                v_id, total_sec = get_video_data(url)
-                
-                # 截图逻辑
-                take_screenshot(url, 2, f"screenshots/level_{level_num}_1.jpg")
-                take_screenshot(url, total_sec // 2, f"screenshots/level_{level_num}_2.jpg")
-                take_screenshot(url, int(total_sec * 0.8), f"screenshots/level_{level_num}_3.jpg")
-                take_screenshot(url, max(0, total_sec - 2), f"screenshots/level_{level_num}_4.jpg")
-            except Exception as e:
-                print(f"Critical error on line '{line}': {e}")
+    print(f"Found {len(urls_data)} videos to process.")
+
+    for line in urls_data:
+        parts = line.split()
+        url = next((p for p in parts if p.startswith("http")), None)
+        level_num = next((p for p in parts if not p.startswith("http")), "unknown")
+        
+        if not url: continue
+
+        v_id, total_sec = get_video_data(url)
+        if v_id and total_sec:
+            # 只截两张图做测试，减少失败概率
+            take_screenshot(url, 5, f"screenshots/level_{level_num}_start.jpg")
+            take_screenshot(url, total_sec - 5, f"screenshots/level_{level_num}_end.jpg")
 
 if __name__ == "__main__":
     main()
